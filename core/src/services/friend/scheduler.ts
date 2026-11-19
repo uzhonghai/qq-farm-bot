@@ -73,6 +73,7 @@ const BAD_SHARED_LIMIT_ID: number = 10003;
 const BAD_DAILY_STATE_VERSION: number = 1;
 // 一轮最多对多少位「没可偷也没可帮」的好友做纯捣乱访问（按等级降序）
 const MAX_BAD_ONLY_VISITS_PER_ROUND: number = 20;
+const FIRST_STEAL_DELAY_MS: number = 3000;
 
 const OP_NAMES: Record<number, string> = {
     10001: '浇水',
@@ -313,8 +314,8 @@ export async function checkFriends(options: CheckFriendsOptions = {}): Promise<b
         && !!getUserState().gid && isAutomationOn('friend') && !inFriendQuietHours()
         && getSystemDateKey() === roundDate && isGatewayHealthyForBusiness(getGatewayLoad());
 
-    async function waitStealGap(target: any): Promise<void> {
-        let remainingMs = getStealDelaySeconds(accountId) * 1000;
+    async function waitStealGap(target: any, delayMs: number = getStealDelaySeconds(accountId) * 1000): Promise<void> {
+        let remainingMs = delayMs;
         while (remainingMs > 0 && canContinue() && isAutomationOn('friend_steal')
             && !getFriendBlacklist(accountId).includes(target.gid)) {
             const sliceMs = Math.min(remainingMs, 1000);
@@ -388,9 +389,12 @@ export async function checkFriends(options: CheckFriendsOptions = {}): Promise<b
         for (const target of plan.visits) {
             if (!canContinue()) return false;
             if (getFriendBlacklist(accountId).includes(target.gid)) continue;
-            if (attemptedStealVisit && target.wantSteal && isAutomationOn('friend_steal')) {
-                // 首位可偷好友立即访问，后续等待不持有自动化锁。
-                await waitStealGap(target);
+            if (target.wantSteal && isAutomationOn('friend_steal')) {
+                // 首位可偷好友固定等 3 秒，后续按偷菜延迟等待；等待不持有自动化锁。
+                const delayMs = attemptedStealVisit
+                    ? getStealDelaySeconds(accountId) * 1000
+                    : FIRST_STEAL_DELAY_MS;
+                if (delayMs > 0) await waitStealGap(target, delayMs);
             }
             if (!canContinue()) return false;
             if (getFriendBlacklist(accountId).includes(target.gid)) continue;

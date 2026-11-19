@@ -304,6 +304,7 @@ const localStrategySettings = ref({
   bagSeedLandTypes: {} as Record<string, string[]>,
   bagSeedFallbackStrategy: 'level',
   stealDelaySeconds: 0,
+  friendStealSkipCount: 0,
   plantOrderRandom: false,
   plantDelaySeconds: 0,
   intervals: { farmMin: 2, farmMax: 5, friendMin: 10, friendMax: 15 },
@@ -772,6 +773,7 @@ function syncLocalStrategySettings() {
       bagSeedLandTypes: settings.value.bagSeedLandTypes ?? {},
       bagSeedFallbackStrategy: settings.value.bagSeedFallbackStrategy ?? 'level',
       stealDelaySeconds: settings.value.stealDelaySeconds ?? 0,
+      friendStealSkipCount: settings.value.friendStealSkipCount ?? 0,
       plantOrderRandom: !!settings.value.plantOrderRandom,
       plantDelaySeconds: settings.value.plantDelaySeconds ?? 0,
       intervals: settings.value.intervals,
@@ -1896,9 +1898,9 @@ async function handleResetSystemConfig() {
 
             <div class="border-t pt-3 space-y-3 dark:border-gray-700">
               <h4 class="text-sm text-gray-700 font-medium dark:text-gray-300">
-                种植与偷菜延迟设置
+                种植与偷菜设置
               </h4>
-              <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <BaseSwitch
                   v-model="localStrategySettings.plantOrderRandom"
                   label="种植顺序随机"
@@ -1917,7 +1919,20 @@ async function handleResetSystemConfig() {
                   min="0"
                   max="300"
                 />
+                <BaseInput
+                  v-model.number="localStrategySettings.friendStealSkipCount"
+                  label="自动偷菜跳过次数"
+                  type="number"
+                  :min="0"
+                  :max="Number.MAX_SAFE_INTEGER"
+                  :step="1"
+                  :clearable="false"
+                  :input-props="{ 'aria-label': '自动偷菜跳过次数', 'aria-describedby': 'friend-steal-skip-count-help' }"
+                />
               </div>
+              <p id="friend-steal-skip-count-help" class="text-xs text-gray-500 dark:text-gray-400">
+                每位好友独立计数。自动偷菜成功后，跳过设定轮数。任一原有地块换茬且农场再次可偷时，才算新的一轮。填 0 关闭。
+              </p>
             </div>
 
             <div class="flex justify-end gap-2 border-t pt-3 dark:border-gray-700">

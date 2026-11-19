@@ -1,5 +1,7 @@
 import type { Application, Request, Response } from 'express';
 import type { AdminContext } from './context';
+import type { FriendStealAnalysis, StealAnalysisOverview, StealAnalysisRange, StealHistoryFilters, StealHistoryPage } from '../../types/steal-history';
+import { parseStealHistoryCursor } from '../../services/steal-history-store';
 export {};
 
 /**
@@ -9,6 +11,8 @@ export {};
 
 const { getLevelExpProgress } = require('../../config/gameConfig');
 const store = require('../../models/store');
+const { createModuleLogger } = require('../../services/logger');
+const historyLogger = createModuleLogger('steal-history');
 
 const {
     createAuthRequired,
@@ -16,6 +20,26 @@ const {
     handleApiError,
     resolveAccId,
 } = require('./middleware');
+
+function isCalendarDate(value: unknown): value is string {
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value) || value.startsWith('0000')) return false;
+    const timestamp = Date.parse(`${value}T00:00:00Z`);
+    return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === value;
+}
+
+function isFriendGid(value: unknown): value is string {
+    return typeof value === 'string' && /^[1-9]\d*$/.test(value);
+}
+
+function parseStealAnalysisRange(query: Request['query']): StealAnalysisRange | null {
+    const { range = '7d', fromDate, toDate } = query;
+    if (range === 'custom') {
+        return isCalendarDate(fromDate) && isCalendarDate(toDate) && fromDate <= toDate
+            ? { range, fromDate, toDate } : null;
+    }
+    if (fromDate !== undefined || toDate !== undefined) return null;
+    return range === 'today' || range === '7d' || range === '30d' || range === 'all' ? { range } : null;
+}
 
 function mountFarmRoutes(app: Application, ctx: AdminContext): void {
     const authRequired = createAuthRequired(ctx);
@@ -617,6 +641,87 @@ function mountFarmRoutes(app: Application, ctx: AdminContext): void {
         }
     });
 
+    app.get('/api/analytics/steal-history', (req: Request, res: Response) => {
+        res.set('Cache-Control', 'no-store');
+        const accountId = req.get('x-account-id')?.trim();
+        if (!accountId) return res.status(400).json({ ok: false, error: '请选择游戏账号' });
+
+        const { limit: rawLimit, cursor: rawCursor, friend, friendGid, triggerType, fromDate, toDate } = req.query;
+        const limit = rawLimit === undefined ? 30
+            : typeof rawLimit === 'string' && /^\d{1,3}$/.test(rawLimit) ? Number(rawLimit) : 0;
+        if (limit < 1 || limit > 100) {
+            return res.status(400).json({ ok: false, error: '每页记录数必须在 1 到 100 之间' });
+        }
+        const cursor = typeof rawCursor === 'string' ? parseStealHistoryCursor(rawCursor) : null;
+        if (rawCursor !== undefined && !cursor) {
+            return res.status(400).json({ ok: false, error: '无效的分页游标' });
+        }
+        const friendSearch = typeof friend === 'string' ? friend.trim() : undefined;
+        if (friend !== undefined && (friendSearch === undefined || friendSearch.length > 100)) {
+            return res.status(400).json({ ok: false, error: '好友筛选最多输入 100 个字符' });
+        }
+        if (friendGid !== undefined && !isFriendGid(friendGid)) {
+            return res.status(400).json({ ok: false, error: '无效的好友 GID' });
+        }
+        if (triggerType !== undefined && triggerType !== 'auto' && triggerType !== 'manual') {
+            return res.status(400).json({ ok: false, error: '无效的触发方式' });
+        }
+        if ((fromDate !== undefined && !isCalendarDate(fromDate)) || (toDate !== undefined && !isCalendarDate(toDate))) {
+            return res.status(400).json({ ok: false, error: '无效的筛选日期' });
+        }
+        if (fromDate && toDate && fromDate > toDate) {
+            return res.status(400).json({ ok: false, error: '结束日期须在开始日期当天或之后' });
+        }
+
+        try {
+            const filters: StealHistoryFilters = {
+                friend: friendSearch || undefined,
+                triggerType: triggerType === 'auto' || triggerType === 'manual' ? triggerType : undefined,
+                fromDate: typeof fromDate === 'string' ? fromDate : undefined,
+                toDate: typeof toDate === 'string' ? toDate : undefined,
+            };
+            if (typeof friendGid === 'string') filters.friendGid = friendGid;
+            const data: StealHistoryPage | null = ctx.provider.getStealHistory(accountId, limit, cursor, filters);
+            if (!data) return res.status(404).json({ ok: false, error: '游戏账号不存在' });
+            // Older clients expect these fields when displaying a history row.
+            const items = data.items.map(item => ({ ...item, quantityStatus: 'unknown', fruits: [] }));
+            res.json({ ok: true, data: { ...data, items } });
+        } catch (error) {
+            historyLogger.error('读取偷菜记录失败', { accountId, error: error instanceof Error ? error.message : String(error) });
+            res.status(503).json({ ok: false, error: '暂时无法读取偷菜记录，请重试' });
+        }
+    });
+
+    function handleStealAnalysis(req: Request, res: Response) {
+        res.set('Cache-Control', 'no-store');
+        const accountId = req.get('x-account-id')?.trim();
+        if (!accountId) return res.status(400).json({ ok: false, error: '请选择游戏账号' });
+
+        const options = parseStealAnalysisRange(req.query);
+        if (!options) return res.status(400).json({ ok: false, error: '无效的统计日期范围' });
+        const { friendGid } = req.params;
+        if (friendGid !== undefined && !isFriendGid(friendGid)) {
+            return res.status(400).json({ ok: false, error: '无效的好友 GID' });
+        }
+
+        try {
+            if (friendGid !== undefined) {
+                const data: FriendStealAnalysis | null | undefined = ctx.provider.getFriendStealAnalysis(accountId, friendGid, options);
+                if (data === undefined) return res.status(404).json({ ok: false, error: '游戏账号不存在' });
+                if (data === null) return res.status(404).json({ ok: false, error: '该好友暂无偷菜记录' });
+                return res.json({ ok: true, data });
+            }
+            const data: StealAnalysisOverview | null = ctx.provider.getStealAnalysis(accountId, options);
+            if (data === null) return res.status(404).json({ ok: false, error: '游戏账号不存在' });
+            return res.json({ ok: true, data });
+        } catch (error) {
+            historyLogger.error('读取偷菜分析失败', { accountId, error: error instanceof Error ? error.message : String(error) });
+            return res.status(503).json({ ok: false, error: '暂时无法读取偷菜分析，请重试' });
+        }
+    }
+
+    app.get('/api/analytics/steal-analysis', handleStealAnalysis);
+    app.get('/api/analytics/steal-analysis/friends/:friendGid', handleStealAnalysis);
 
     // ============ 配置管理 API ============
 

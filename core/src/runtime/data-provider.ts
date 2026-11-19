@@ -1,4 +1,6 @@
 export {};
+import type { FriendStealAnalysis, StealAnalysisOverview, StealAnalysisRange, StealHistoryCursor, StealHistoryFilters, StealHistoryPage } from '../types/steal-history';
+
 const { findAccountByRef, normalizeAccountRef, resolveAccountId: resolveAccountIdByList } = require('../services/account-resolver');
 const { getSchedulerRegistrySnapshot } = require('../services/scheduler');
 
@@ -8,6 +10,9 @@ interface DataProviderOptions {
     accountLogs: any[];
     store: any;
     getAccounts: () => any;
+    listStealHistory: (accountHistoryId: string, limit: number, cursor: StealHistoryCursor | null, filters: StealHistoryFilters) => StealHistoryPage;
+    analyzeStealHistory: (accountHistoryId: string, options: StealAnalysisRange) => StealAnalysisOverview;
+    analyzeFriendStealHistory: (accountHistoryId: string, friendGid: string, options: StealAnalysisRange) => FriendStealAnalysis | null;
     callWorkerApi: (accountId: string, method: string, ...args: any[]) => Promise<any>;
     buildDefaultStatus: (accountId: string) => any;
     normalizeStatusForPanel: (data: any, accountId: string, accountName: string) => any;
@@ -29,6 +34,9 @@ function createDataProvider(options: DataProviderOptions) {
         accountLogs,
         store,
         getAccounts,
+        listStealHistory,
+        analyzeStealHistory,
+        analyzeFriendStealHistory,
         callWorkerApi,
         buildDefaultStatus,
         normalizeStatusForPanel,
@@ -61,6 +69,21 @@ function createDataProvider(options: DataProviderOptions) {
 
     return {
         resolveAccountId: (accountRef: string) => resolveAccountRefId(accountRef),
+
+        getStealHistory(accountId: string, limit: number, cursor: StealHistoryCursor | null, filters: StealHistoryFilters): StealHistoryPage | null {
+            const account = getStoredAccountsList().find(item => item.id === accountId);
+            return account ? listStealHistory(account.historyId, limit, cursor, filters) : null;
+        },
+
+        getStealAnalysis(accountId: string, options: StealAnalysisRange): StealAnalysisOverview | null {
+            const account = getStoredAccountsList().find(item => item.id === accountId);
+            return account ? analyzeStealHistory(account.historyId, options) : null;
+        },
+
+        getFriendStealAnalysis(accountId: string, friendGid: string, options: StealAnalysisRange): FriendStealAnalysis | null | undefined {
+            const account = getStoredAccountsList().find(item => item.id === accountId);
+            return account ? analyzeFriendStealHistory(account.historyId, friendGid, options) : undefined;
+        },
 
         getStatus: (accountRef: string) => {
             const accountId = resolveAccountRefId(accountRef);
@@ -310,6 +333,7 @@ function createDataProvider(options: DataProviderOptions) {
                 'intervals',
                 'friendQuietHours',
                 'stealDelaySeconds',
+                'friendStealSkipCount',
                 'plantOrderRandom',
                 'plantDelaySeconds',
                 'fertilizerBuyOrganicCount',

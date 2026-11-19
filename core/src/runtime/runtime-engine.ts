@@ -1,4 +1,7 @@
 export {};
+import { createStealHistoryStore } from '../services/steal-history-store';
+import type { StealHistoryEvent } from '../types/steal-history';
+
 const { fork } = require('node:child_process');
 const path = require('node:path');
 const { Worker } = require('node:worker_threads');
@@ -54,6 +57,8 @@ function createRuntimeEngine(options: RuntimeEngineOptions = {}) {
         filterLogs,
     } = runtimeState;
 
+    const stealHistory = createStealHistoryStore();
+
     const reloginReminder = createReloginReminderService({
         store,
         sendPushooMessage,
@@ -84,6 +89,13 @@ function createRuntimeEngine(options: RuntimeEngineOptions = {}) {
         sendConfiguredPush,
         addOrUpdateAccount: store.addOrUpdateAccount,
         deleteAccount: store.deleteAccount,
+        onStealHistory: (accountId: string, accountHistoryId: string, event: StealHistoryEvent) => {
+            try {
+                stealHistory.write(accountId, accountHistoryId, event);
+            } catch (error) {
+                log('错误', `保存偷菜记录失败: ${error instanceof Error ? error.message : String(error)}`, { accountId });
+            }
+        },
         onStatusSync: (accountId: string, status: any, accountName?: string) => {
             runtimeEvents.emit('status', { accountId, status, accountName });
             if (onStatusSync) onStatusSync(accountId, status, accountName);
@@ -99,6 +111,9 @@ function createRuntimeEngine(options: RuntimeEngineOptions = {}) {
         accountLogs: ACCOUNT_LOGS,
         store,
         getAccounts: store.getAccounts,
+        listStealHistory: stealHistory.list,
+        analyzeStealHistory: stealHistory.analyze,
+        analyzeFriendStealHistory: stealHistory.analyzeFriend,
         callWorkerApi,
         buildDefaultStatus,
         normalizeStatusForPanel,

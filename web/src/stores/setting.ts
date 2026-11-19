@@ -108,6 +108,7 @@ export interface SettingsState {
   ui: UIConfig
   offlineReminder: OfflineConfig
   stealDelaySeconds: number
+  friendStealSkipCount: number
   plantOrderRandom: boolean
   plantDelaySeconds: number
   fertilizerBuyOrganicCount: number
@@ -134,6 +135,7 @@ type SaveableSettingsKey
     | 'friendQuietHours'
     | 'automation'
     | 'stealDelaySeconds'
+    | 'friendStealSkipCount'
     | 'plantOrderRandom'
     | 'plantDelaySeconds'
     | 'fertilizerBuyOrganicCount'
@@ -161,6 +163,7 @@ const SAVEABLE_SETTINGS_KEYS: SaveableSettingsKey[] = [
   'friendQuietHours',
   'automation',
   'stealDelaySeconds',
+  'friendStealSkipCount',
   'plantOrderRandom',
   'plantDelaySeconds',
   'fertilizerBuyOrganicCount',
@@ -198,6 +201,7 @@ function createDefaultSettings(): SettingsState {
       offlineDeleteSec: 0,
     },
     stealDelaySeconds: 0,
+    friendStealSkipCount: 0,
     plantOrderRandom: false,
     plantDelaySeconds: 0,
     fertilizerBuyOrganicCount: 10,
@@ -259,6 +263,7 @@ export const useSettingStore = defineStore('setting', () => {
         ...(cloneValue(data.offlineReminder) || {}),
       },
       stealDelaySeconds: data.stealDelaySeconds ?? defaults.stealDelaySeconds,
+      friendStealSkipCount: data.friendStealSkipCount ?? defaults.friendStealSkipCount,
       plantOrderRandom: data.plantOrderRandom ?? defaults.plantOrderRandom,
       plantDelaySeconds: data.plantDelaySeconds ?? defaults.plantDelaySeconds,
       fertilizerBuyOrganicCount: data.fertilizerBuyOrganicCount ?? defaults.fertilizerBuyOrganicCount,

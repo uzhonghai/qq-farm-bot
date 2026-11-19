@@ -6,6 +6,8 @@ import { storeToRefs } from 'pinia'
 import { computed, onMounted, ref, watch } from 'vue'
 import api from '@/api'
 import PageTabs from '@/components/PageTabs.vue'
+import StealAnalysisPanel from '@/components/StealAnalysisPanel.vue'
+import StealHistoryPanel from '@/components/StealHistoryPanel.vue'
 import { useAccountStore } from '@/stores/account'
 import { usePlantBlacklistStore } from '@/stores/plant-blacklist'
 import { useSettingStore } from '@/stores/setting'
@@ -29,7 +31,7 @@ const sortKey = ref('exp')
 const imageErrors = ref<Record<string | number, boolean>>({})
 const batchLoading = ref(false)
 
-type AnalysisTab = 'strategy' | 'blacklist' | 'seeds' | 'fruits' | 'items'
+type AnalysisTab = 'strategy' | 'blacklist' | 'seeds' | 'fruits' | 'items' | 'steal-history' | 'steal-analysis'
 type ConfigSection = 'seeds' | 'fruits' | 'items'
 
 const activeTab = ref<AnalysisTab>('strategy')
@@ -299,6 +301,12 @@ function getSeedNameById(seedId: number) {
           </span>
         </span>
       </NTab>
+      <NTab name="steal-history">
+        <span class="inline-flex items-center gap-2"><span class="i-carbon-time" />偷菜记录</span>
+      </NTab>
+      <NTab name="steal-analysis">
+        <span class="inline-flex items-center gap-2"><span class="i-carbon-chart-bar" />好友偷菜分析</span>
+      </NTab>
       <NTab v-for="tab in configTabs" :key="tab.key" :name="tab.key">
         <span class="inline-flex items-center gap-2"><span :class="tab.icon" />{{ tab.label }}</span>
       </NTab>
@@ -544,6 +552,8 @@ function getSeedNameById(seedId: number) {
         </div>
       </div>
 
+      <StealHistoryPanel v-if="activeTab === 'steal-history'" :account-id="String(currentAccountId || '')" />
+      <StealAnalysisPanel v-if="activeTab === 'steal-analysis'" :account-id="String(currentAccountId || '')" />
       <ConfigManage v-if="isConfigTab" :section="configSection" />
     </div>
   </div>

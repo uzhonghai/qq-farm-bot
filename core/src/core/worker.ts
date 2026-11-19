@@ -1,4 +1,5 @@
 export {};
+import { configureFriendStealInterval } from '../services/friend/steal-interval';
 /**
  * 子进程 Worker - 负责运行单个账号的挂机逻辑
  */
@@ -633,6 +634,7 @@ async function startBot(config: any): Promise<void> {
     runtimeGeneration += 1;
 
     const { code, platform, systemTimeZone, systemServerUrl, systemClientVersion, systemWxClientVersion, systemDeviceInfo } = config;
+    configureFriendStealInterval(config.accountHistoryId);
 
     if (systemTimeZone !== undefined) updateRuntimeConfig({ timeZone: systemTimeZone });
     if (systemServerUrl !== undefined) updateRuntimeConfig({ serverUrl: String(systemServerUrl || '') });

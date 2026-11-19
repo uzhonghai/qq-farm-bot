@@ -1,4 +1,5 @@
 import type { Account, AccountsData } from '../../types/account';
+import { randomUUID } from 'node:crypto';
 export {};
 
 const { ensureDataDir } = require('../../config/runtime-paths');
@@ -18,6 +19,15 @@ function loadAccounts(): AccountsData {
         const raw = readJsonFileStrict(ACCOUNTS_FILE, () => ({ accounts: [], nextId: 1 }));
         if (!raw || !Array.isArray(raw.accounts)) throw new Error('Invalid accounts data');
         const data = normalizeAccountsData(raw);
+        if (data.accounts.some((account, index) => account.historyId !== raw.accounts[index]?.historyId)) {
+            writeJsonFileAtomic(ACCOUNTS_FILE, {
+                ...raw,
+                accounts: raw.accounts.map((account: any, index: number) => ({
+                    ...account,
+                    historyId: data.accounts[index].historyId,
+                })),
+            });
+        }
         accountsCache = data;
         return cloneAccounts(data);
     } catch (error: any) {
@@ -55,6 +65,7 @@ function normalizeAccount(raw: any): Account {
     const source = raw && typeof raw === 'object' ? raw : {};
     const account: Account = {
         id: String(source.id || ''),
+        historyId: typeof source.historyId === 'string' && source.historyId ? source.historyId : randomUUID(),
         name: String(source.name || ''),
         code: String(source.code || ''),
         platform: String(source.platform || 'qq'),
@@ -90,6 +101,7 @@ function addOrUpdateAccount(acc: Partial<Account> & { avatarUrl?: string }): Acc
         touchedAccountId = String(id);
         data.accounts.push({
             id: touchedAccountId,
+            historyId: randomUUID(),
             name: acc.name || `账号${id}`,
             code: acc.code || '',
             platform: acc.platform || 'qq',

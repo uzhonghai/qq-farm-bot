@@ -34,8 +34,9 @@ const invalidKnownFriendGidCooldownUntil: Map<number, number> = new Map();
 
 export function postToMaster(payload: any): boolean {
     try {
-        if (process.send) {
-            process.send(payload);
+        if (process.send && process.connected) {
+            // A fork can disconnect after this check. Handle delivery errors in the callback.
+            process.send(payload, () => {});
             return true;
         }
         if (parentPort && typeof parentPort.postMessage === 'function') {

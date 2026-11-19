@@ -228,7 +228,7 @@ export async function helpFarming(friendGid: number, landIds: number[], stopWhen
     }
 }
 
-export async function stealHarvest(friendGid: number, landIds: number[]): Promise<any> {
+export async function stealHarvest(friendGid: number, landIds: number[]): Promise<void> {
     const body: Uint8Array = types.HarvestRequest.encode(types.HarvestRequest.create({
         land_ids: landIds,
         host_gid: toLong(friendGid),
@@ -237,7 +237,6 @@ export async function stealHarvest(friendGid: number, landIds: number[]): Promis
     const { body: replyBody } = await sendMsgAsync('gamepb.plantpb.PlantService', 'Harvest', body);
     const reply: any = types.HarvestReply.decode(replyBody);
     schedulerRef().updateOperationLimits(reply.operation_limits);
-    return reply;
 }
 
 export async function putPlantItems(friendGid: number, landIds: number[], RequestType: any, ReplyType: any, method: string, propagateErrors: boolean = false): Promise<number> {

@@ -16,6 +16,7 @@ const {
     normalizeKnownFriendGidSyncCooldownSec,
     normalizeFriendsListCacheTtlSec,
     normalizeEmailClaimHour,
+    isValidFriendStealSkipCount,
     normalizeBagSeedPriority,
     normalizeBagSeedLandTypes,
     normalizeBagSeedFallbackStrategy,
@@ -41,8 +42,15 @@ function getAccountConfigSnapshot(accountId?: unknown): AccountConfig {
     return normalizeAccountConfig(globalConfig.accountConfigs[id], sharedState.accountFallbackConfig);
 }
 
+function assertFriendStealSkipCount(value: unknown): void {
+    if (!isValidFriendStealSkipCount(value)) {
+        throw Object.assign(new Error('自动偷菜跳过次数必须是非负安全整数'), { code: 'INVALID_FRIEND_STEAL_SKIP_COUNT' });
+    }
+}
+
 function setAccountConfigSnapshot(accountId: unknown, nextConfig: Partial<AccountConfig>, persist: boolean = true): AccountConfig {
     if (Object.hasOwn(nextConfig, 'emailClaimHour')) assertEmailClaimHour(nextConfig.emailClaimHour);
+    if (Object.hasOwn(nextConfig, 'friendStealSkipCount')) assertFriendStealSkipCount(nextConfig.friendStealSkipCount);
     // Initialization must happen before changing memory; a first direct call can
     // otherwise reload old data over the configuration it is about to save.
     const persistence = persist ? require('./global-config') : null;
@@ -104,6 +112,7 @@ function getConfigSnapshot(accountId?: unknown): AccountConfig & { ui: typeof gl
         friendBlacklist: [...(cfg.friendBlacklist || [])],
         plantBlacklist: [...(cfg.plantBlacklist || [])],
         stealDelaySeconds: Math.max(0, Math.min(300, Number(cfg.stealDelaySeconds) || 0)),
+        friendStealSkipCount: cfg.friendStealSkipCount,
         plantOrderRandom: !!cfg.plantOrderRandom,
         plantDelaySeconds: Math.max(0, Math.min(60, Number(cfg.plantDelaySeconds) || 0)),
         fertilizerBuyOrganicCount: Math.max(0, Math.min(10000, Number(cfg.fertilizerBuyOrganicCount) || 0)),
@@ -133,6 +142,7 @@ interface ApplyConfigSnapshotOptions {
 function applyConfigSnapshot(snapshot: Record<string, any> | undefined, options: ApplyConfigSnapshotOptions = {}): ReturnType<typeof getConfigSnapshot> {
     const cfg: Record<string, any> = snapshot || {};
     if (Object.hasOwn(cfg, 'emailClaimHour')) assertEmailClaimHour(cfg.emailClaimHour);
+    if (Object.hasOwn(cfg, 'friendStealSkipCount')) assertFriendStealSkipCount(cfg.friendStealSkipCount);
     const persist = options.persist !== false;
     const accountId = options.accountId;
     if (persist) require('./global-config');
@@ -213,6 +223,10 @@ function applyConfigSnapshot(snapshot: Record<string, any> | undefined, options:
 
     if (cfg.stealDelaySeconds !== undefined && cfg.stealDelaySeconds !== null) {
         next.stealDelaySeconds = Math.max(0, Math.min(300, Number(cfg.stealDelaySeconds) || 0));
+    }
+
+    if (cfg.friendStealSkipCount !== undefined) {
+        next.friendStealSkipCount = cfg.friendStealSkipCount;
     }
 
     if (cfg.plantOrderRandom !== undefined && cfg.plantOrderRandom !== null) {
@@ -423,6 +437,10 @@ function getStealDelaySeconds(accountId?: unknown): number {
     return Math.max(0, Math.min(300, Number(getAccountConfigSnapshot(accountId).stealDelaySeconds) || 0));
 }
 
+function getFriendStealSkipCount(accountId?: unknown): number {
+    return getAccountConfigSnapshot(accountId).friendStealSkipCount;
+}
+
 function getPlantOrderRandom(accountId?: unknown): boolean {
     return !!getAccountConfigSnapshot(accountId).plantOrderRandom;
 }
@@ -515,6 +533,7 @@ module.exports = {
     setFriendBlacklist,
     addFriendToBlacklist,
     getStealDelaySeconds,
+    getFriendStealSkipCount,
     getPlantOrderRandom,
     getPlantDelaySeconds,
     getFertilizerBuyOrganicCount,

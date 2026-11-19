@@ -80,7 +80,31 @@ function partsToRecord(parts: Intl.DateTimeFormatPart[]): Record<string, string>
 /** 按指定 IANA 时区生成日期键，不依赖服务器操作系统时区 */
 function formatDateKeyInTimeZone(nowMs: number, timeZone: string): string {
     const parts = partsToRecord(getDateFormatter(timeZone).formatToParts(new Date(nowMs)));
-    return `${parts.year}-${parts.month}-${parts.day}`;
+    return `${parts.year.padStart(4, '0')}-${parts.month}-${parts.day}`;
+}
+
+function getCalendarDateRangeInTimeZone(dateKey: string, timeZone: string): { startMs: number; endMs: number } {
+    const utcMidnightMs = Date.parse(`${dateKey}T00:00:00Z`);
+    const searchWindowMs = 48 * 60 * 60 * 1000;
+    const searchEnd = utcMidnightMs + searchWindowMs;
+
+    // Find each local date change separately so short and long DST days work.
+    function findBoundary(from: number, to: number, isBefore: (dateKey: string) => boolean): number {
+        while (from < to) {
+            const middle = from + Math.floor((to - from) / 2);
+            if (isBefore(formatDateKeyInTimeZone(middle, timeZone))) from = middle + 1;
+            else to = middle;
+        }
+        return from;
+    }
+
+    const startMs = findBoundary(utcMidnightMs - searchWindowMs, searchEnd, localDate => localDate < dateKey);
+    const endMs = findBoundary(startMs, searchEnd, localDate => localDate <= dateKey);
+    return { startMs, endMs };
+}
+
+function getDateRangeInTimeZone(nowMs: number, timeZone: string): { startMs: number; endMs: number } {
+    return getCalendarDateRangeInTimeZone(formatDateKeyInTimeZone(nowMs, timeZone), timeZone);
 }
 
 /** 获取系统配置时区下的当前日期键 */
@@ -216,6 +240,6 @@ module.exports = {
     toLong, toNum,
     setLogHook,
     getServerTimeSec, syncServerTime, getSystemDateKey, getSystemClockMinutes,
-    formatDateKeyInTimeZone, formatSystemDateTime24, toTimeSec,
+    formatDateKeyInTimeZone, getDateRangeInTimeZone, getCalendarDateRangeInTimeZone, formatSystemDateTime24, toTimeSec,
     log, logWarn, sleep, randomDelay,
 };

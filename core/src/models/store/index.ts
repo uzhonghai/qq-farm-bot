@@ -29,6 +29,7 @@ module.exports = {
     setFriendBlacklist: accountConfig.setFriendBlacklist,
     addFriendToBlacklist: accountConfig.addFriendToBlacklist,
     getStealDelaySeconds: accountConfig.getStealDelaySeconds,
+    getFriendStealSkipCount: accountConfig.getFriendStealSkipCount,
     getPlantOrderRandom: accountConfig.getPlantOrderRandom,
     getPlantDelaySeconds: accountConfig.getPlantDelaySeconds,
     getFertilizerBuyOrganicCount: accountConfig.getFertilizerBuyOrganicCount,

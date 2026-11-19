@@ -12,6 +12,7 @@ Thumbs.db
 core/data/logs/*
 !core/data/logs/.gitkeep
 core/data/*.json
+core/data/steal-history.db*
 !core/data/.gitkeep
 web/dist
 web/node_modules

@@ -79,6 +79,7 @@ export interface AccountConfig {
   friendBlacklist: number[];
   plantBlacklist: number[];
   stealDelaySeconds: number;
+  friendStealSkipCount: number;
   plantOrderRandom: boolean;
   plantDelaySeconds: number;
   fertilizerBuyOrganicCount: number;

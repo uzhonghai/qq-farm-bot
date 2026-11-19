@@ -1,6 +1,7 @@
 export {};
 export interface Account {
   id: string;
+  historyId: string;
   name: string;
   code: string;
   platform: string;

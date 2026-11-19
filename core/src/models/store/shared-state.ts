@@ -115,6 +115,7 @@ const DEFAULT_ACCOUNT_CONFIG: AccountConfig = {
         20061,
     ],
     stealDelaySeconds: 1,
+    friendStealSkipCount: 0,
     plantOrderRandom: true,
     plantDelaySeconds: 2,
     fertilizerBuyOrganicCount: 1,
@@ -164,6 +165,10 @@ function normalizeFriendsListCacheTtlSec(input: unknown, fallback: number = DEFA
 
 function normalizeEmailClaimHour(input: unknown, fallback: number = DEFAULT_ACCOUNT_CONFIG.emailClaimHour): number {
     return parseHourOfDay(input) ?? parseHourOfDay(fallback) ?? DEFAULT_ACCOUNT_CONFIG.emailClaimHour;
+}
+
+function isValidFriendStealSkipCount(value: unknown): value is number {
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
 function normalizeAutoAcceptFriendMinLevel(input: unknown, fallback: number = 0): number {
@@ -323,6 +328,9 @@ function cloneAccountConfig(base: Partial<AccountConfig> = DEFAULT_ACCOUNT_CONFI
         preferredSeedId: Math.max(0, Number.parseInt(String(base.preferredSeedId), 10) || 0),
         plantBlacklist: rawPlantBlacklist.map(Number).filter(n => Number.isFinite(n) && n > 0),
         stealDelaySeconds: Math.max(0, Math.min(300, Number(base.stealDelaySeconds) || 0)),
+        friendStealSkipCount: isValidFriendStealSkipCount(base.friendStealSkipCount)
+            ? base.friendStealSkipCount
+            : DEFAULT_ACCOUNT_CONFIG.friendStealSkipCount,
         plantOrderRandom: !!(base.plantOrderRandom),
         plantDelaySeconds: Math.max(0, Math.min(60, Number(base.plantDelaySeconds) || 0)),
         fertilizerBuyOrganicCount: Math.max(0, Math.min(10000, Number(base.fertilizerBuyOrganicCount) || 0)),
@@ -430,6 +438,10 @@ function normalizeAccountConfig(input: unknown, fallback: AccountConfig = accoun
 
     if (src.stealDelaySeconds !== undefined && src.stealDelaySeconds !== null) {
         cfg.stealDelaySeconds = Math.max(0, Math.min(300, Number(src.stealDelaySeconds) || 0));
+    }
+
+    if (isValidFriendStealSkipCount(src.friendStealSkipCount)) {
+        cfg.friendStealSkipCount = src.friendStealSkipCount;
     }
 
     if (src.plantOrderRandom !== undefined && src.plantOrderRandom !== null) {
@@ -653,6 +665,7 @@ module.exports = {
     normalizeKnownFriendGidSyncCooldownSec,
     normalizeFriendsListCacheTtlSec,
     normalizeEmailClaimHour,
+    isValidFriendStealSkipCount,
     normalizeBagSeedPriority,
     normalizeBagSeedLandTypes,
     normalizeBagSeedFallbackStrategy,

@@ -1,4 +1,6 @@
 export {};
+import type { StealHistoryEvent } from '../types/steal-history';
+
 const { createScheduler } = require('../services/scheduler');
 
 const DEFAULT_API_CALL_TIMEOUT_MS = 10000;
@@ -33,6 +35,7 @@ interface WorkerManagerOptions {
     deleteAccount: (id: string) => void;
     onStatusSync?: (accountId: string, status: any, accountName?: string) => void;
     onWorkerLog?: (entry: any, accountId: string, accountName?: string) => void;
+    onStealHistory?: (accountId: string, accountHistoryId: string, event: StealHistoryEvent) => void;
 }
 
 function createWorkerManager(options: WorkerManagerOptions) {
@@ -56,6 +59,7 @@ function createWorkerManager(options: WorkerManagerOptions) {
         deleteAccount,
         onStatusSync,
         onWorkerLog,
+        onStealHistory,
     } = options;
     const managerScheduler = createScheduler('worker_manager');
     const useThreadRuntime = runtimeMode === 'thread' && !(processRef as any).pkg && typeof WorkerThread === 'function';
@@ -123,6 +127,7 @@ function createWorkerManager(options: WorkerManagerOptions) {
             requests: new Map(),
             reqId: 1,
             name: account.name,
+            historyId: account.historyId,
             nick: account.nick || '',
             avatar: account.avatar || '',
             stopping: false,
@@ -138,6 +143,7 @@ function createWorkerManager(options: WorkerManagerOptions) {
             config: {
                 code: account.code,
                 platform: account.platform,
+                accountHistoryId: account.historyId,
                 systemTimeZone: initialConfigSnapshot.systemTimeZone,
                 systemServerUrl: initialConfigSnapshot.systemServerUrl,
                 systemClientVersion: initialConfigSnapshot.systemClientVersion,
@@ -327,6 +333,8 @@ function createWorkerManager(options: WorkerManagerOptions) {
                     }
                 }
             }
+        } else if (msg.type === 'steal_history') {
+            if (worker.historyId) onStealHistory?.(accountId, worker.historyId, msg.data);
         } else if (msg.type === 'log') {
             const logEntry = {
                 ...msg.data,

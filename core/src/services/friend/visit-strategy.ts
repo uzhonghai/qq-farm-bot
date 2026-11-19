@@ -2,18 +2,24 @@
  * 拜访好友策略 - 访问逻辑、好友分析、错误处理、安静时段
  */
 
+import type { StealTrigger } from '../../types/steal-history';
+import { createStealHistoryRecorder } from './steal-history';
+import { recordAutoStealSuccess, shouldSkipAutoSteal } from './steal-interval';
+import type { FriendStealRound } from './steal-round';
+
 const { PlantPhase } = require('../../config/config');
 const { getPlantName, getPlantById } = require('../../config/gameConfig');
 const {
     isAutomationOn,
     getFriendQuietHours,
     getFriendBlacklist,
+    getFriendStealSkipCount,
     getPlantBlacklist,
     getFriendsListCacheTtlSec,
 } = require('../../models/store');
 const { getUserState } = require('../../utils/network');
 const { isGatewayYieldError } = require('../../utils/low-priority-gate');
-const { toNum, getServerTimeSec, getSystemClockMinutes, log, logWarn, sleep, randomDelay } = require('../../utils/utils');
+const { toNum, toTimeSec, getServerTimeSec, getSystemClockMinutes, log, logWarn, sleep, randomDelay } = require('../../utils/utils');
 
 const {
     getCurrentPhase,
@@ -55,6 +61,20 @@ function schedulerRef(): any {
 // ============ 内部状态 ============
 let friendsListCache: any[] | null = null;
 let friendsListCacheTime: number = 0;
+
+function getVisitedFriendGid(enterReply: any, requestedGid: string): string {
+    const replyGid = String(enterReply?.basic?.gid ?? '');
+    return /^[1-9]\d*$/.test(replyGid) ? replyGid : requestedGid;
+}
+
+function trackFriendSteal(enterReply: any, requestedGid: string, trigger: StealTrigger, listedName?: string) {
+    const friendGid = getVisitedFriendGid(enterReply, requestedGid);
+    const name = String(enterReply?.basic?.name ?? '').trim()
+        || String(friendsListCache?.find(friend => String(friend.gid) === requestedGid)?.name || listedName || '').trim();
+    return createStealHistoryRecorder(friendGid, name && name !== `GID:${requestedGid}` ? name : null, trigger, (data) => {
+        postToMaster({ type: 'steal_history', data });
+    });
+}
 
 function isProtectDog(dogInfo: any): boolean {
     return toNum(dogInfo && (dogInfo.dog_id ?? dogInfo.dogId)) === PROTECT_DOG_ID;
@@ -286,10 +306,11 @@ interface AnalyzeResult {
 
 interface AnalyzeOptions {
     plantBlacklist?: number[] | null;
+    stealRound?: FriendStealRound;
 }
 
 export function analyzeFriendLands(lands: any[], myGid: number, friendName: string = '', options: AnalyzeOptions = {}): AnalyzeResult {
-    const { plantBlacklist = null } = options;
+    const { plantBlacklist = null, stealRound } = options;
     const result: AnalyzeResult = {
         stealable: [],   // 可偷
         stealableInfo: [],  // 可偷植物信息 { landId, plantId, name }
@@ -312,15 +333,23 @@ export function analyzeFriendLands(lands: any[], myGid: number, friendName: stri
             continue;
         }
 
-        const currentPhase: any = getCurrentPhase(plant.phases, false, `[${friendName}]土地#${id}`, toNum(plant.id));
+        const plantId: number = toNum(plant.id);
+        const currentPhase: any = getCurrentPhase(plant.phases, false, `[${friendName}]土地#${id}`, plantId);
         if (!currentPhase) {
             continue;
         }
         const phaseVal: number = currentPhase.phase;
+        if (stealRound && Number.isSafeInteger(id) && id > 0 && Number.isSafeInteger(plantId) && plantId > 0) {
+            stealRound[id] = {
+                plantId,
+                season: toNum(plant.season),
+                phase: phaseVal,
+                phaseStartedAt: toTimeSec(currentPhase.begin_time),
+            };
+        }
 
         if (phaseVal === PlantPhase.MATURE) {
             if (plant.stealable) {
-                const plantId: number = toNum(plant.id);
                 const plantName: string = getPlantName(plantId) || plant.name || '未知';
 
                 // 获取种子ID用于黑名单检查（前端黑名单使用seedId）
@@ -645,8 +674,13 @@ export async function doFriendOperation(friendGid: any, opType: string, propagat
 
         if (opType === 'steal') {
             if (!status.stealable.length) return { ok: true, opType, count: 0, message: '没有可偷取土地' };
-            const target: number[] = status.stealable;
-            count = await runBatchWithFallback(target, (ids: number[]) => stealHarvest(gid, ids), (ids: number[]) => stealHarvest(gid, ids), propagateErrors);
+            const history = trackFriendSteal(enterReply, String(friendGid), 'manual');
+            const harvest = (ids: number[]) => history.capture(() => stealHarvest(gid, ids));
+            try {
+                count = await runBatchWithFallback(status.stealable, harvest, harvest, propagateErrors);
+            } finally {
+                history.finish();
+            }
             if (count > 0) {
                 recordOperation('steal', count);
                 // 手动偷取成功后立即尝试出售一次果实
@@ -823,7 +857,11 @@ export async function visitFriend(
     }
 
     const plantBlacklist: number[] = getPlantBlacklist(accountId);
-    const status: AnalyzeResult = analyzeFriendLands(lands, myGid, name, { plantBlacklist });
+    const round: FriendStealRound = {};
+    const status: AnalyzeResult = analyzeFriendLands(lands, myGid, name, {
+        plantBlacklist,
+        stealRound: stealEnabled ? round : undefined,
+    });
 
     // 执行操作
     const actions: string[] = [];
@@ -855,15 +893,24 @@ export async function visitFriend(
     }
 
     // 2. 偷菜操作
-    if (stealEnabled && status.stealable.length > 0) {
+    const canSteal = stealEnabled && status.stealable.length > 0
+        && isAutomationOn('friend_steal') && !getFriendBlacklist(accountId).includes(gid);
+    const skipCount = canSteal ? getFriendStealSkipCount(accountId) : 0;
+    const friendGid = getVisitedFriendGid(enterReply, String(gid));
+    if (canSteal && !shouldSkipAutoSteal(friendGid, skipCount, round)) {
         const targetLands: number[] = status.stealable;
 
         let ok: number = 0;
         const stolenPlants: string[] = [];
+        const history = trackFriendSteal(enterReply, String(gid), 'auto', name);
+        const harvest = async (landIds: number[]): Promise<void> => {
+            await history.capture(() => stealHarvest(gid, landIds));
+            if (skipCount > 0 && ok === 0) recordAutoStealSuccess(friendGid, round);
+        };
 
         // 尝试批量偷取
         try {
-            await stealHarvest(gid, targetLands);
+            await harvest(targetLands);
             ok = targetLands.length;
             targetLands.forEach((id: number) => {
                 const info: any = status.stealableInfo.find((x: any) => x.landId === id);
@@ -873,13 +920,15 @@ export async function visitFriend(
             // 批量失败，降级为单个
             for (const landId of targetLands) {
                 try {
-                    await stealHarvest(gid, [landId]);
+                    await harvest([landId]);
                     ok++;
                     const info: any = status.stealableInfo.find((x: any) => x.landId === landId);
                     if (info) stolenPlants.push(info.name);
                 } catch { /* ignore */ }
                 await randomDelay(500, 800);
             }
+        } finally {
+            history.finish();
         }
 
         if (ok > 0) {
