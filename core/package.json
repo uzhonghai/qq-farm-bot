@@ -45,10 +45,7 @@
   },
   "pkg": {
     "scripts": [
-      "dist/controllers/admin/index.js",
-      "dist/runtime/runtime-engine.js",
-      "dist/services/logger.js",
-      "dist/core/worker.js"
+      "dist/**/*.js"
     ],
     "assets": [
       "dist/pkg-libsql/node_modules/@libsql/*/index.node",
