@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const { EventEmitter } = require('node:events');
 const { mkdtempSync, readFileSync, rmSync } = require('node:fs');
 const { createRequire } = require('node:module');
 const { tmpdir } = require('node:os');
@@ -86,7 +87,10 @@ test('auto visits skip distinct eligible farm rounds and reset once after a succ
             getFriendStealSkipCount: () => skipCount,
             isAutomationOn: key => key === 'friend_help' || (key === 'friend_steal' && stealEnabled),
         },
-        '../../utils/network': { getUserState: () => ({ gid: 1, accountId: '1' }) },
+        '../../utils/network': {
+            getUserState: () => ({ gid: 1, accountId: '1' }),
+            networkEvents: new EventEmitter(),
+        },
         '../../utils/utils': { toNum: Number, toTimeSec: Number, log() {}, logWarn() {}, sleep: async () => {}, randomDelay: async () => {} },
         '../farm': {
             getCurrentPhase: phases => phases[0], buildLandMap: () => new Map(), isOccupiedSlaveLand: () => false,
@@ -110,6 +114,8 @@ test('auto visits skip distinct eligible farm rounds and reset once after a succ
             }),
         },
         './gid-manager': {
+            parseRpcErrorCode: () => 0,
+            isInvalidFriendAccessError: () => false,
             postToMaster: ({ data }) => {
                 events.push(data);
                 store.write('1', 'account-a', data);
@@ -285,9 +291,10 @@ test('settings validate and save the account value before applying it to the Wor
     }
     const store = loadAccountConfig();
     const workerStore = loadAccountConfig();
+    const offlineReminder = { offlineDeleteSec: 60 };
     const { createDataProvider } = require('../dist/runtime/data-provider');
     const { mountAccountRoutes } = loadModule('controllers/admin/account-routes.js', {
-        '../../models/store': { ...store, getUI: () => ({}) },
+        '../../models/store': { ...store, getUI: () => ({}), getOfflineReminder: () => offlineReminder },
     });
     let revision = 0;
     let workerCalls = 0;
@@ -320,7 +327,9 @@ test('settings validate and save the account value before applying it to the Wor
         await routes.get(route)({ headers: { 'x-account-id': id }, body }, res);
         return res;
     }
-    assert.equal((await request('GET /api/settings')).body.data.friendStealSkipCount, 0);
+    const initialSettings = (await request('GET /api/settings')).body.data;
+    assert.equal(initialSettings.friendStealSkipCount, 0);
+    assert.deepEqual(initialSettings.offlineReminder, offlineReminder);
     const saved = await request('POST /api/settings/save', { friendStealSkipCount: 2 });
     assert.equal(saved.statusCode, 200);
     assert.equal(saved.body.confirmed, true);

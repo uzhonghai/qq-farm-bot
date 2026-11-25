@@ -40,6 +40,9 @@ test('manual operations, auto batches and fallback record once each, and failed 
     const trace = [];
     const events = [];
     const calls = [];
+    const invalidFriend = new Error('friend access revoked');
+    const removedFriends = [];
+    let leftFarm = 0;
     const land = id => ({ id, plant: { id: 20001, phases: [{ phase: 6 }], stealable: true } });
     const visit = loadModule('services/friend/visit-strategy.js', {
         '../../config/config': { PlantPhase: { MATURE: 6 } },
@@ -50,7 +53,10 @@ test('manual operations, auto batches and fallback record once each, and failed 
             getFriendStealSkipCount: () => 0,
             isAutomationOn: key => key === 'friend_steal',
         },
-        '../../utils/network': { getUserState: () => ({ gid: 1, accountId: '1' }) },
+        '../../utils/network': {
+            getUserState: () => ({ gid: 1, accountId: '1' }),
+            networkEvents: new EventEmitter(),
+        },
         '../../utils/utils': { toNum: Number, toTimeSec: Number, log() {}, logWarn() {}, sleep: async () => {}, randomDelay: async () => {} },
         '../farm': { getCurrentPhase: phases => phases[0], buildLandMap: () => new Map(), isOccupiedSlaveLand: () => false },
         '../career': {},
@@ -58,13 +64,17 @@ test('manual operations, auto batches and fallback record once each, and failed 
         '../warehouse': { sellAllFruits: async () => { trace.push('sell'); } },
         './api': {
             enterFriendFarm: async () => ({ basic: { gid: 9007199254740993n, name: '实际好友' }, lands: [land(1), land(2), land(3)] }),
-            leaveFriendFarm: async () => {},
+            leaveFriendFarm: async () => { leftFarm++; },
             stealHarvest: async (_gid, ids) => {
                 calls.push(Array.from(ids));
                 return harvest(ids);
             },
         },
-        './gid-manager': { postToMaster: ({ data }) => { events.push(data); trace.push('report'); } },
+        './gid-manager': {
+            isInvalidFriendAccessError: error => error === invalidFriend,
+            removeKnownFriendGid: gid => removedFriends.push(gid),
+            postToMaster: ({ data }) => { events.push(data); trace.push('report'); },
+        },
         './pet-cache': {},
         './scheduler': { setCanGetHelpExp() {} },
     });
@@ -104,6 +114,19 @@ test('manual operations, auto batches and fallback record once each, and failed 
     assert.equal(failed.acted, false);
     assert.deepEqual(calls, [[1, 2, 3], [1], [2], [3]]);
     assert.equal(events.length, 3);
+
+    calls.length = 0;
+    const previousLeaves = leftFarm;
+    harvest = ids => {
+        if (ids.length > 1) throw new Error('batch reply timed out');
+        if (ids[0] === 2) throw invalidFriend;
+    };
+    assert.deepEqual(await visit.visitFriend(friend, { steal: 0 }, 1, '1'), { acted: false, entered: true });
+    assert.deepEqual(calls, [[1, 2, 3], [1], [2]]);
+    assert.deepEqual(removedFriends, [123]);
+    assert.equal(leftFarm, previousLeaves + 1);
+    assert.equal(events.length, 4);
+    assert.equal(events.at(-1).triggerType, 'auto');
 });
 
 test('SQLite counts legacy and new operations across pages, preserves legacy fruit rows, and isolates account generations', (t) => {
@@ -311,6 +334,8 @@ test('legacy accounts get stable history IDs and reusing a panel ID gets a new h
 
     const oldId = loadAccounts().getAccounts().accounts[0].historyId;
     assert.equal(writes, 1);
+    assert.ok(disk.accounts[0].createdAt > 0);
+    assert.equal(disk.accounts[0].historyId, oldId);
     const store = loadAccounts();
     assert.equal(store.getAccounts().accounts[0].historyId, oldId);
     assert.equal(writes, 1);
